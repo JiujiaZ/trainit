@@ -8,6 +8,7 @@ from jax import random as jr
 from jax import tree_util as jtu
 
 from optimizer.quantize import differentiable_sign
+from optimizer.freeze import freeze_layer
 
 import equinox as eqx
 from equinox import nn
@@ -278,13 +279,34 @@ class GPT(eqx.Module):
 
         return eqx.tree_at(where=where, pytree=self, replace_fn=replace_fn)
 
+    def freeze(self):
+        freeze_config = self.config.freeze
+
+        def where(t):
+            return jtu.tree_leaves(t.transformer_blocks) + jtu.tree_leaves(t.ln)
+
+        def replace_fn(x):
+            if not eqx.is_array(x):
+                return x
+            if x.ndim < 2:
+                return x
+            result = freeze_layer(x, rms_scale=freeze_config.rms_scale)
+            if freeze_config.dim_scale:
+                result = result / x.shape[1]
+            return result
+
+        return eqx.tree_at(where=where, pytree=self, replace_fn=replace_fn)
+
     @named_scope("gpt2.GPT")
-    def __call__(self, input, *, key: PRNGKeyArray, is_quantized=False):
+    def __call__(self, input, *, key: PRNGKeyArray, is_quantized=False, is_frozen=False):
         """input is single input, a [L,] sequence of tokenized sentence."""
 
         if not is_quantized and self.config.do_quantize:
             print("quantizing...")
             return self.quantize()(input, key=key, is_quantized=True)
+        if not is_frozen and self.config.do_freeze:
+            print("freezing...")
+            return self.freeze()(input, key=key, is_frozen=True)
         L = len(input)
         assert L <= self.context_length, f"Input size {L} exceeds context length{self.context_length}."
 

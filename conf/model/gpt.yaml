@@ -24,3 +24,9 @@ do_quantize: False
 quantize:
   rms_scale: True
   dim_scale: False
+
+do_freeze: True
+
+freeze:
+  rms_scale: True
+  dim_scale: False
